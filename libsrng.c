@@ -26,13 +26,7 @@ static inline unsigned short libsrng_random_range(unsigned long long *, unsigned
 
 unsigned short libsrng_random (unsigned long long * state, unsigned short range, unsigned reseed) {
   if (!state) return 0;
-  if (reseed) {
-    unsigned long long new_state;
-    do
-      new_state = libsrng_random_seed(state);
-    while (-- reseed);
-    *state = new_state;
-  }
+  while (reseed --) *state = libsrng_random_seed(state);
   return libsrng_random_range(state, range);
 }
 
@@ -114,13 +108,9 @@ static inline unsigned char libsrng_stable_random (struct libsrng_stable_random_
 }
 
 static inline unsigned short libsrng_random_range (unsigned long long * state, unsigned short limit) {
-  switch (limit) {
-    case 0:
-      return libsrng_random_halfword(state);
-    case 1:
-      return 0;
-  }
+  if (limit == 1) return 0;
   unsigned short result = libsrng_random_halfword(state);
+  if (!(limit & (limit - 1))) return result & (limit - 1);
   if (result >= limit) return result % limit;
   unsigned short resampling_limit = 0x10000 % limit;
   while (result < resampling_limit) result = libsrng_random_halfword(state);
