@@ -1,12 +1,13 @@
 # libsrng
 
 It's a bunch of RNG functions I wrote some time ago. The library is a single C file and can be dropped wherever.
-Include `libsrng.h` in your project to use it, and compile `libsrng.c` with it. No dependencies.
+Include `libsrng.h` in your project to use it, and compile `libsrng.c` with it. No dependencies. (If your environment
+doesn't have the `<stdint.h>` header, replace it with suitable definitions for `uint16_t`, `uint32_t` and `uint64_t`.)
 
 Usage:
 
 ```c
-unsigned short libsrng_random(unsigned long long * state, unsigned short range, unsigned reseed);
+uint16_t libsrng_random(uint64_t * state, uint16_t range, unsigned reseed);
 ```
 
 * `state` is the 64-bit state of the RNG.
