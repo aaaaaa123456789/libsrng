@@ -1,11 +1,16 @@
 #include "libsrng.h"
 
 struct libsrng_stable_random_state {
-  unsigned shift:  32;
-  unsigned carry:   8;
-  unsigned current: 8;
-  unsigned prev:    8;
-  unsigned linear:  8;
+  uint32_t shift;
+  uint8_t carry;
+  uint8_t current;
+  uint8_t prev;
+  uint8_t linear;
+};
+
+union libsrng_stable_random_state_union {
+  uint64_t numeric;
+  struct libsrng_stable_random_state structured;
 };
 
 static inline uint16_t libsrng_random_linear(uint16_t);
@@ -36,9 +41,16 @@ static inline uint16_t libsrng_random_linear (uint16_t previous) {
 
 static inline unsigned char libsrng_random_combined (uint64_t * state) {
   // this conditional should be determined at compile time, and it should be true for virtually any reasonable platform
-  if (sizeof *state == sizeof(struct libsrng_stable_random_state)) {
-    union {struct libsrng_stable_random_state s; uint64_t n;} * state_union = (void *) state;
-    return libsrng_stable_random(&(state_union -> s));
+  // compilers should be able to optimize the function without it, but that doesn't seem to be happening
+  if (
+      // check the sizes of the types involved
+      (sizeof *state == sizeof(struct libsrng_stable_random_state)) &&
+      (sizeof *state == sizeof(union libsrng_stable_random_state_union)) &&
+      // ensure that the machine is little-endian
+      (((union libsrng_stable_random_state_union) {.numeric = 0x0123456789abcdef}).structured.shift == 0x89abcdef)
+     ) {
+    union libsrng_stable_random_state_union * state_union = (void *) state;
+    return libsrng_stable_random(&(state_union -> structured));
   } else {
     struct libsrng_stable_random_state temp_state = {.shift = *state, .carry = *state >> 32, .current = *state >> 40,
                                                      .prev = *state >> 48, .linear = *state >> 56};
