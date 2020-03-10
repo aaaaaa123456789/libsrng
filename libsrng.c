@@ -27,6 +27,14 @@ static inline uint16_t libsrng_random_range(uint64_t *, uint16_t);
 #define SEED_LCG_FIRST_ADDEND   0x0123456789abcdefULL
 #define SEED_LCG_SECOND_ADDEND  0x0fedcba987654321ULL
 
+// the 16-bit generator calls for three 8-bit RNs; this cuts the RNG's period to a third of its maximum
+// whenever the RNG lands on one of these values, switch to the next one; this restores the full period
+// the constants are just 4.60 fixed point values (rounded to zero) for some fundamental mathematical constants
+// (pi, e, the golden ratio) that happen to fall on different RNG cycles
+#define SWITCH_TRIGGER_STATE_0  0x3243f6a8885a308dULL
+#define SWITCH_TRIGGER_STATE_1  0x2b7e151628aed2a6ULL
+#define SWITCH_TRIGGER_STATE_2  0x19e3779b97f4a7c1ULL
+
 #define STABLE_RANDOM_NEXT_LINEAR(s) ((s) -> linear *= 73, (s) -> linear += 29, (s) -> linear)
 
 uint16_t libsrng_random (uint64_t * state, uint16_t range, unsigned reseed) {
@@ -69,8 +77,15 @@ static inline uint64_t libsrng_random_combined_multibyte (uint64_t * state, unsi
 }
 
 static inline uint16_t libsrng_random_halfword (uint64_t * state) {
+  const uint64_t switch_trigger_states[] = {SWITCH_TRIGGER_STATE_0, SWITCH_TRIGGER_STATE_1, SWITCH_TRIGGER_STATE_2, SWITCH_TRIGGER_STATE_0};
+  unsigned char count;
+  for (count = 0; count < (sizeof switch_trigger_states / sizeof *switch_trigger_states - 1); count ++)
+    if (*state == switch_trigger_states[count]) {
+      *state = switch_trigger_states[count + 1];
+      break;
+    }
   uint16_t buffer = libsrng_random_combined_multibyte(state, 2);
-  unsigned char count = libsrng_random_combined(state);
+  count = libsrng_random_combined(state);
   unsigned char shift = count >> 4, multiplier = 3 + ((count & 12) >> 1);
   count = (count & 3) + 2;
   while (count --) buffer = libsrng_random_linear(buffer);
@@ -90,10 +105,32 @@ static inline uint64_t libsrng_random_seed (uint64_t * state) {
 
 static inline unsigned char libsrng_stable_random (struct libsrng_stable_random_state * state) {
   uint32_t p;
+  const unsigned char cycle_start_points[] = {1, 2, 4, 8, 13, 17, 23, 26, 29, 58, 0};
+  const unsigned char short_cycles[] = {0x72, 0x4f, 0x9f, 0x7b, 0x1a, 0x7b, 0x84, 0xe5, 0x56, 0x8d, 0xb0, 0x32, 0, 0, 1};
   if (!state -> shift) for (p = 0; p < 4; p ++) state -> shift = (state -> shift << 8) | STABLE_RANDOM_NEXT_LINEAR(state);
   state -> shift ^= state -> shift >> 8;
   state -> shift ^= state -> shift << 9;
   state -> shift ^= state -> shift >> 23;
+  if (state -> prev || state -> current)
+    for (p = 0; p < (sizeof short_cycles - 3); p += 3) {
+      if ((state -> prev == short_cycles[p]) && (state -> current == short_cycles[p + 1]) && (state -> carry == short_cycles[p + 2])) {
+        state -> prev = short_cycles[p + 3];
+        state -> current = short_cycles[p + 4];
+        state -> carry = short_cycles[p + 5];
+        break;
+      }
+    }
+  else
+    for (p = 0; p < (sizeof cycle_start_points - 1); p ++) if (state -> carry == cycle_start_points[p]) {
+      state -> carry = cycle_start_points[p + 1];
+      if (!state -> carry) {
+        state -> prev = *short_cycles;
+        state -> current = short_cycles[1];
+        state -> carry = short_cycles[2];
+        STABLE_RANDOM_NEXT_LINEAR(state);
+      }
+      break;
+    }
   if (state -> carry >= 210) state -> carry -= 210;
   p = state -> carry + state -> prev + state -> current;
   if (!p || (p == 719)) {
